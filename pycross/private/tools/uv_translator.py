@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hashlib
+import urllib.request
+from copy import deepcopy
 import re
 from collections import defaultdict
 from collections.abc import Callable
@@ -8,6 +11,7 @@ from pathlib import Path
 from typing import Any
 from typing import Dict
 from typing import List
+from typing import Optional
 from typing import Set
 from urllib.parse import unquote
 from urllib.parse import urlparse
@@ -133,7 +137,7 @@ class Package:
         )
 
 
-def parse_file_info(file_info: Dict[str, Any]) -> PackageFile:
+def parse_file_info(file_info: Dict[str, Any], package_name: Optional[NormalizedName] = None, package_version: Optional[Version] = None) -> PackageFile:
     if "file" in file_info:
         file_name = file_info["file"]
         urls = tuple()
@@ -143,10 +147,10 @@ def parse_file_info(file_info: Dict[str, Any]) -> PackageFile:
         file_name = unquote(file_name)
         urls = (url,)
     else:
-        raise AssertionError("file entry has no file or url member")
+        raise AssertionError("file entry has no file or url member", file_info)
     file_hash = file_info["hash"]
     assert file_hash.startswith("sha256:")
-    return PackageFile(name=file_name, sha256=file_hash[7:], urls=urls)
+    return PackageFile(name=file_name, sha256=file_hash[7:], urls=urls, package_name=package_name, package_version=package_version)
 
 
 # Dataclass to hold the project and lock files
@@ -364,7 +368,7 @@ def collect_and_process_packages(packages_list: list[Dict[str, Any]]) -> Dict[Pa
     for lock_pkg in packages_list:
         package_listed_name = lock_pkg["name"]
         package_name = package_canonical_name(package_listed_name)
-        package_version = lock_pkg["version"]
+        package_version = Version(lock_pkg["version"])
         package_requires_python = lock_pkg.get("requires_python", "")
         package_extras = lock_pkg.get("extras", [])
 
@@ -389,11 +393,26 @@ def collect_and_process_packages(packages_list: list[Dict[str, Any]]) -> Dict[Pa
 
             dependencies.add(Requirement(dep_string))
 
-        files = lock_pkg.get("wheels", [])
-        if lock_pkg.get("sdist"):
-            files.append(lock_pkg.get("sdist"))
+        files_to_parse = lock_pkg.get("wheels", [])
+        files = set()
+        if "git" in lock_pkg.get("source", {}):
+            raise Exception("Git source not supported, use an archive instead")
+        elif "url" in lock_pkg.get("source", {}):
+            ext = lock_pkg["source"]["url"].rsplit(".", 1)[1]
+            f = PackageFile(
+                name=f"{package_name.replace('-','__')}-{package_version}.{ext}",
+                sha256=lock_pkg["sdist"]["hash"][7:],
+                urls=(lock_pkg["source"]["url"],),
+                package_name=package_name,
+                package_version=package_version,
+            )
+            files.add(f)
+        elif lock_pkg.get("sdist"):
+            files_to_parse.append(lock_pkg.get("sdist"))
 
-        files = {parse_file_info(f) for f in files}
+
+        for f in files_to_parse:
+            files.add(parse_file_info(f, package_name=package_name, package_version=package_version))
 
         is_local_sdist = lock_pkg.get("sdist") == {"path": "."}
         is_local_editable = lock_pkg.get("source") == {"editable": "."}
@@ -406,7 +425,7 @@ def collect_and_process_packages(packages_list: list[Dict[str, Any]]) -> Dict[Pa
 
         package = Package(
             name=package_name,
-            version=Version(package_version),
+            version=package_version,
             python_versions=SpecifierSet(package_requires_python),
             dependencies=dependencies,
             files=files,

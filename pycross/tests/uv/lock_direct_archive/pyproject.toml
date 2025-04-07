@@ -1,0 +1,13 @@
+[project]
+name = "rules-pycross-test"
+version = "0.1.0"
+description = ""
+requires-python = ">=3.9, <3.13"
+dependencies = [
+  "promise==2.3",
+  "blockhash @ https://github.com/commonsmachinery/blockhash-python/archive/f28b741a1f6bfff25763ae42dc2190051079998c.zip#egg=blockhash-0.1",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

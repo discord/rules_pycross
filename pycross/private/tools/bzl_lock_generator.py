@@ -4,6 +4,7 @@ from typing import Any
 from pycross.private.tools import raw_lock_resolver
 from pycross.private.tools import resolved_lock_renderer
 from pycross.private.tools.args import FlagFileArgumentParser
+from pycross.private.tools.lock_model import PackageKey
 
 
 def parse_flags() -> Any:

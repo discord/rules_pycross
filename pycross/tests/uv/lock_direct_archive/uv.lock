@@ -1,0 +1,42 @@
+version = 1
+revision = 1
+requires-python = ">=3.9, <3.13"
+
+[[package]]
+name = "blockhash"
+version = "0.1"
+source = { url = "https://github.com/commonsmachinery/blockhash-python/archive/f28b741a1f6bfff25763ae42dc2190051079998c.zip" }
+sdist = { hash = "sha256:c3dbe4486f1f2c5fc83a2c61a3e483780c75a64f9766ce8154aed71e82ae3d52" }
+
+[[package]]
+name = "promise"
+version = "2.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "six" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/cf/9c/fb5d48abfe5d791cd496e4242ebcf87a4bb2e0c3dcd6e0ae68c11426a528/promise-2.3.tar.gz", hash = "sha256:dfd18337c523ba4b6a58801c164c1904a9d4d1b1747c7d5dbf45b693a49d93d0", size = 19534 }
+
+[[package]]
+name = "rules-pycross-test"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "blockhash" },
+    { name = "promise" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "blockhash", url = "https://github.com/commonsmachinery/blockhash-python/archive/f28b741a1f6bfff25763ae42dc2190051079998c.zip" },
+    { name = "promise", specifier = "==2.3" },
+]
+
+[[package]]
+name = "six"
+version = "1.17.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/94/e7/b2c673351809dca68a0e064b6af791aa332cf192da575fd474ed7d6f16a2/six-1.17.0.tar.gz", hash = "sha256:ff70335d468e7eb6ec65b95b99d3a2836546063f63acc5171de367e834932a81", size = 34031 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl", hash = "sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274", size = 11050 },
+]

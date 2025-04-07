@@ -173,10 +173,20 @@ class GenerationContext:
                 candidates_to_package_sources[candidate] = package_source
 
             candidates = []
+            failed_candidates = []
             for candidate in candidates_to_package_sources:
-                link_type, _ = link_evaluator.evaluate_link(candidate.link)
+                link_type, reason = link_evaluator.evaluate_link(candidate.link)
                 if link_type == LinkType.candidate:
                     candidates.append(candidate)
+                else:
+                    failed_candidates.append((candidate, link_type, reason))
+
+            if not candidates:
+                raise Exception(
+                    f"Package {package.name} version {package.version} has no candidates for environment {environment.name}",
+                    failed_candidates,
+                )
+
 
             candidate_evaluator = CandidateEvaluator.create(package.name, environment.target_python)
             compute_result = candidate_evaluator.compute_best_candidate(candidates)
