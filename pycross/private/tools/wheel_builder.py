@@ -638,6 +638,10 @@ def build_wheel(
             env.update(extra_environ)
 
         if debug:
+            print("===== BUILD ENV =====", file=sys.stdout)
+            for k, v in env.items():
+                print(f"{k}={v}", file=sys.stdout)
+
             try:
                 site = subprocess.check_output([cmd[0], "-m", "site"], cwd=cwd, env=env, stderr=subprocess.STDOUT)
                 print("===== BUILD SITE =====", file=sys.stdout)
