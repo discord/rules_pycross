@@ -307,6 +307,9 @@ def _handle_tools_and_data(ctx, args, tools):
             args.add_all("--path-tool", [name, _executable(tool)])
         tools.extend(_files_to_run(ctx.attr.path_tools.keys()))
 
+    if ctx.attr.tools:
+        tools.extend(_files_to_run(ctx.attr.tools))
+
 def _pycross_wheel_build_impl(ctx):
     args = ctx.actions.args().use_param_file("--flagfile=%s")
     inputs = []
@@ -417,6 +420,9 @@ pycross_wheel_build = rule(
             doc = (
                 "A mapping of binaries to names that are placed in PATH when building the sdist."
             ),
+            cfg = "exec",
+        ),
+        "tools": attr.label_list(
             cfg = "exec",
         ),
         "copts": attr.string_list(
