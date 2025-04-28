@@ -206,15 +206,46 @@ def _handle_toolchains(ctx, args, tools):
         args.add("--exec-python-executable", executable)
         args.add("--target-python-executable", executable)
 
+
+def get_wheel_name(sdist_filename):
+    """Returns the name of the wheel file based on the sdist name."""
+    if sdist_filename.lower().endswith(".tar.gz"):
+        wheel_name = sdist_filename[:-7]
+    else:
+        # Assume that it's a zip file, even though that's not technically compliant
+        wheel_name = sdist_filename.rsplit(".", 1)[0]
+
+    # There are still legacy sdists that don't comply with PEP 625 and have
+    # multiple hypens in the name. Without this, the module_map generation in
+    # the gazelle plugin fails to grab the right package name. Version numbers
+    # shouldn't have hyphens in them, so we can assume everything before the
+    # last hyphen is the distribution name. We want to replace runs with a
+    # single hypden, so a simple replace doesn't work. Ideally we'd use a
+    # regex, but we don't have that available in Starlark.
+
+    distribution, version = wheel_name.rsplit("-", 1)
+    normalized = ""
+    in_run = False
+    for c in distribution.elems():
+        if c in ('-', '_', '.'):
+            in_run = True
+            continue
+        if in_run:
+            normalized += "_"
+            in_run = False
+        normalized += c
+    if in_run:
+        normalized += "_"
+    wheel_name = normalized + "-" + version
+    return wheel_name
+
+
 def _handle_sdist(ctx, args, inputs):  # -> PycrossWheelInfo
     inputs.append(ctx.file.sdist)
     args.add("--sdist", ctx.file.sdist)
 
-    sdist_name = ctx.file.sdist.basename
-    if sdist_name.lower().endswith(".tar.gz"):
-        wheel_name = sdist_name[:-7]
-    else:
-        wheel_name = sdist_name.rsplit(".", 1)[0]  # Also includes .zip
+    sdist_filename = ctx.file.sdist.basename
+    wheel_name = get_wheel_name(sdist_filename)
 
     out_wheel = ctx.actions.declare_file(paths.join(ctx.attr.name, wheel_name + ".whl"))
     out_wheel_name = ctx.actions.declare_file(paths.join(ctx.attr.name, wheel_name + ".whl.name"))
