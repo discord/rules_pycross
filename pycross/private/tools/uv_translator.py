@@ -17,6 +17,7 @@ from urllib.parse import unquote
 from urllib.parse import urlparse
 
 import tomli
+from packaging.markers import Marker, _normalize_extra_values
 from packaging.requirements import Requirement
 from packaging.specifiers import SpecifierSet
 from packaging.utils import NormalizedName
@@ -44,27 +45,37 @@ class LockfileNotStaticException(Exception):
 class MismatchedVersionException(Exception):
     pass
 
+class RequirementUv(Requirement):
+    def __init__(self, name: str, specifier: str = "", url: str | None = None, extra: List[str] | None = None, marker: str | None = None) -> None:
+        self.name: str = name
+        self.url: str | None = url or None
+        self.extras: set[str] = set(extra or [])
+        self.specifier: SpecifierSet = SpecifierSet(specifier)
+        self.marker: Marker | None = None
+        if marker is not None:
+            self.marker = Marker.__new__(Marker)
+            self.marker._markers = _normalize_extra_values(marker)
 
-def get_default_dependencies(lock: Dict[str, Any]) -> List[Requirement]:
-    deps = lock.get("project", {}).get("dependencies", [])
-    return [Requirement(dep) for dep in deps]
+def get_default_dependencies(package: Dict[str, Any]) -> Set[RequirementUv]:
+    deps = package.get("dependencies", [])
+    return {RequirementUv(**dep) for dep in deps}
 
 
-def get_optional_dependencies(lock: Dict[str, Any]) -> Dict[str, List[Requirement]]:
-    dep_groups = lock.get("project", {}).get("optional-dependencies", {})
-    return {group: [Requirement(dep) for dep in deps] for group, deps in dep_groups.items()}
+def get_optional_dependencies(package: Dict[str, Any]) -> Dict[str, Set[RequirementUv]]:
+    dep_groups = package.get("optional-dependencies", {})
+    return {group: {RequirementUv(**dep) for dep in deps} for group, deps in dep_groups.items()}
 
 
-def get_development_dependencies(lock: Dict[str, Any]) -> Dict[str, List[Requirement]]:
-    dep_groups = lock.get("dependency-groups", {})
+def get_development_dependencies(package: Dict[str, Any]) -> Dict[str, Set[Requirement]]:
+    dep_groups = package.get("dependency-groups", {})
     # backwards-compatiblity for https://github.com/astral-sh/uv/pull/8272
     # see: https://docs.astral.sh/uv/concepts/projects/dependencies/#legacy-dev-dependencies
-    legacy_dev_deps = lock.get("tool", {}).get("uv", {}).get("dev-dependencies", [])
-    if legacy_dev_deps:
-        dev_deps = dep_groups.get("dev", []) + legacy_dev_deps
-        dep_groups["dev"] = list(set(dev_deps))
+    # legacy_dev_deps = lock.get("tool", {}).get("uv", {}).get("dev-dependencies", [])
+    # if legacy_dev_deps:
+    #     dev_deps = dep_groups.get("dev", []) + legacy_dev_deps
+    #     dep_groups["dev"] = list(set(dev_deps))
 
-    return {group: [Requirement(EDITABLE_PATTERN.sub("", dep)) for dep in deps] for group, deps in dep_groups.items()}
+    return {group: {Requirement(EDITABLE_PATTERN.sub("", dep)) for dep in deps} for group, deps in dep_groups.items()}
 
 
 def _print_warn(msg):
@@ -191,6 +202,7 @@ def translate(
     project_dict: Dict[str, Any],
     packages_list: list[Dict[str, Any]],
     requires_python: SpecifierSet,
+    workspace_members: List[str],
     default_group: bool,
     optional_groups: List[str],
     all_optional_groups: bool,
@@ -198,14 +210,31 @@ def translate(
     all_development_groups: bool,
     package_processor: Callable[[list[Dict[str, Any]]], Dict[PackageKey, Package]],
 ) -> RawLockSet:
-    requirements: List[Requirement] = []
 
-    default_dependencies = get_default_dependencies(project_dict)
-    optional_dependencies = get_optional_dependencies(project_dict)
-    development_dependencies = get_development_dependencies(project_dict)
+    distinct_packages = package_processor(packages_list)
+    all_packages = distinct_packages.values()
+    requirements: Set[Requirement] = set()
+
+    workspace_members_set = set(workspace_members)
+
+    default_dependencies = set()
+    optional_dependencies = defaultdict(set)
+    development_dependencies = defaultdict(set)
+
+    for package in packages_list:
+        # This is a bit inefficient, but the package_processor doesn't have all
+        # the info and I don't want to refactor that yet
+        if package["name"] not in workspace_members_set:
+            continue
+
+        default_dependencies.update(get_default_dependencies(package))
+        for k, v in get_optional_dependencies(package).items():
+            optional_dependencies[k].update(v)
+        for k, v in get_development_dependencies(package).items():
+            development_dependencies[k].update(v)
 
     if default_group:
-        requirements.extend(default_dependencies)
+        requirements.update(default_dependencies)
 
     if all_optional_groups:
         optional_groups = list(optional_dependencies)
@@ -216,20 +245,17 @@ def translate(
     for group_name in optional_groups:
         if group_name not in optional_dependencies:
             raise Exception(f"Non-existent optional dependency group: {group_name}")
-        requirements.extend(optional_dependencies[group_name])
+        requirements.update(optional_dependencies[group_name])
 
     for group_name in development_groups:
         if group_name not in development_dependencies:
             raise Exception(f"Non-existent development dependency group: {group_name}")
-        requirements.extend(development_dependencies[group_name])
+        requirements.update(development_dependencies[group_name])
 
     pinned_package_specs: Dict[NormalizedName, Requirement] = {}
     for req in requirements:
         pin = package_canonical_name(req.name)
         pinned_package_specs[pin] = req
-
-    distinct_packages = package_processor(packages_list)
-    all_packages = distinct_packages.values()
 
     # Next, group packages by their canonical name
     packages_by_canonical_name: Dict[str, List[Package]] = defaultdict(list)
@@ -398,15 +424,20 @@ def collect_and_process_packages(packages_list: list[Dict[str, Any]]) -> Dict[Pa
         if "git" in lock_pkg.get("source", {}):
             raise Exception("Git source not supported, use an archive instead")
         elif "url" in lock_pkg.get("source", {}):
-            ext = lock_pkg["source"]["url"].rsplit(".", 1)[1]
-            f = PackageFile(
-                name=f"{package_name.replace('-','__')}-{package_version}.{ext}",
-                sha256=lock_pkg["sdist"]["hash"][7:],
-                urls=(lock_pkg["source"]["url"],),
-                package_name=package_name,
-                package_version=package_version,
-            )
-            files.add(f)
+            try:
+                ext = lock_pkg["source"]["url"].rsplit(".", 1)[1]
+                if ext != "whl":
+                    # Assume it's an archive
+                    f = PackageFile(
+                        name=f"{package_name.replace('-','__')}-{package_version}.{ext}",
+                        sha256=lock_pkg["sdist"]["hash"][7:],
+                        urls=(lock_pkg["source"]["url"],),
+                        package_name=package_name,
+                        package_version=package_version,
+                    )
+                    files.add(f)
+            except Exception as e:
+                raise Exception(f"Could not parse URL source for package {package_name}: lock_pkg={lock_pkg}") from e
         elif lock_pkg.get("sdist"):
             files_to_parse.append(lock_pkg.get("sdist"))
 
@@ -414,9 +445,9 @@ def collect_and_process_packages(packages_list: list[Dict[str, Any]]) -> Dict[Pa
         for f in files_to_parse:
             files.add(parse_file_info(f, package_name=package_name, package_version=package_version))
 
-        is_local_sdist = lock_pkg.get("sdist") == {"path": "."}
-        is_local_editable = lock_pkg.get("source") == {"editable": "."}
-        is_local_virtual = lock_pkg.get("source") == {"virtual": "."}
+        is_local_sdist = 'path' in lock_pkg.get("sdist", {})
+        is_local_editable = 'editable' in lock_pkg.get("source", {})
+        is_local_virtual = 'virtual' in lock_pkg.get("source", {})
 
         is_local = is_local_sdist or is_local_editable or is_local_virtual
 
@@ -464,11 +495,14 @@ def main(args: Any) -> None:
     distributions_list = lock_dict.get("distribution", [])
     packages_list = lock_dict.get("package", distributions_list)
     requires_python = SpecifierSet(lock_dict.get("requires-python", ""))
+    project_name = package_canonical_name(project_dict["project"]["name"])
+    workspace_members = lock_dict.get("manifest", {}).get("members", [project_name])
 
     lock_set = translate(
         project_dict,
         packages_list,
         requires_python,
+        workspace_members=workspace_members,
         default_group=args.default_group,
         optional_groups=args.optional_group,
         all_optional_groups=args.all_optional_groups,
