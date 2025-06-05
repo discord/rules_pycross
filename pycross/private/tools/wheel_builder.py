@@ -265,8 +265,13 @@ def get_wrapper_flags(cflags: str) -> List[str]:
     return result
 
 
-def wrap_cc(lang: str, cc_exe: Path, cflags: str, python_exe: Path, bin_dir: Path) -> Path:
+def wrap_cc(lang: str, cc_exe: str, cflags: str, python_exe: Path, bin_dir: Path) -> Path:
     assert lang in ("cc", "cxx")
+    # since we change the CWD, some tools like the cc_wrapper.sh from
+    # toolchains_llvm will only work if we call them with an absolute path.
+    # rules_foreign_cc does this as well so matching that pattern seems ok
+    # versus tring to fix things like toolchains_llvm
+    cc_exe = Path(cc_exe).resolve()
     version_str = subprocess.check_output([cc_exe, "--version"]).decode("utf-8")
     first_line = version_str.splitlines()[0]
 
