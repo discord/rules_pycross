@@ -45,8 +45,16 @@ class LockfileNotStaticException(Exception):
 class MismatchedVersionException(Exception):
     pass
 
+
 class RequirementUv(Requirement):
-    def __init__(self, name: str, specifier: str = "", url: str | None = None, extra: List[str] | None = None, marker: str | None = None) -> None:
+    def __init__(
+        self,
+        name: str,
+        specifier: str = "",
+        url: str | None = None,
+        extra: List[str] | None = None,
+        marker: str | None = None,
+    ) -> None:
         self.name: str = name
         self.url: str | None = url or None
         self.extras: set[str] = set(extra or [])
@@ -55,6 +63,7 @@ class RequirementUv(Requirement):
         if marker is not None:
             self.marker = Marker.__new__(Marker)
             self.marker._markers = _normalize_extra_values(marker)
+
 
 def get_default_dependencies(package: Dict[str, Any]) -> Set[RequirementUv]:
     deps = package.get("dependencies", [])
@@ -148,7 +157,9 @@ class Package:
         )
 
 
-def parse_file_info(file_info: Dict[str, Any], package_name: Optional[NormalizedName] = None, package_version: Optional[Version] = None) -> PackageFile:
+def parse_file_info(
+    file_info: Dict[str, Any], package_name: Optional[NormalizedName] = None, package_version: Optional[Version] = None
+) -> PackageFile:
     if "file" in file_info:
         file_name = file_info["file"]
         urls = tuple()
@@ -161,7 +172,9 @@ def parse_file_info(file_info: Dict[str, Any], package_name: Optional[Normalized
         raise AssertionError("file entry has no file or url member", file_info)
     file_hash = file_info["hash"]
     assert file_hash.startswith("sha256:")
-    return PackageFile(name=file_name, sha256=file_hash[7:], urls=urls, package_name=package_name, package_version=package_version)
+    return PackageFile(
+        name=file_name, sha256=file_hash[7:], urls=urls, package_name=package_name, package_version=package_version
+    )
 
 
 # Dataclass to hold the project and lock files
@@ -210,7 +223,6 @@ def translate(
     all_development_groups: bool,
     package_processor: Callable[[list[Dict[str, Any]]], Dict[PackageKey, Package]],
 ) -> RawLockSet:
-
     distinct_packages = package_processor(packages_list)
     all_packages = distinct_packages.values()
     requirements: Set[Requirement] = set()
@@ -441,15 +453,15 @@ def collect_and_process_packages(packages_list: list[Dict[str, Any]]) -> Dict[Pa
         elif lock_pkg.get("sdist"):
             files_to_parse.append(lock_pkg.get("sdist"))
 
-
         for f in files_to_parse:
             files.add(parse_file_info(f, package_name=package_name, package_version=package_version))
 
-        is_local_sdist = 'path' in lock_pkg.get("sdist", {})
-        is_local_editable = 'editable' in lock_pkg.get("source", {})
-        is_local_virtual = 'virtual' in lock_pkg.get("source", {})
+        is_local_sdist = "path" in lock_pkg.get("sdist", {})
+        is_local_editable = "editable" in lock_pkg.get("source", {})
+        is_local_virtual = "virtual" in lock_pkg.get("source", {})
+        is_local_directory = "directory" in lock_pkg.get("source", {})
 
-        is_local = is_local_sdist or is_local_editable or is_local_virtual
+        is_local = is_local_sdist or is_local_editable or is_local_virtual or is_local_directory
 
         if not files and not is_local:
             raise Exception(lock_pkg, is_local)
