@@ -271,7 +271,7 @@ def wrap_cc(lang: str, cc_exe: str, cflags: str, python_exe: Path, bin_dir: Path
     # toolchains_llvm will only work if we call them with an absolute path.
     # rules_foreign_cc does this as well so matching that pattern seems ok
     # versus tring to fix things like toolchains_llvm
-    cc_exe = Path(cc_exe).resolve()
+    cc_exe = str(Path(cc_exe).absolute())
     version_str = subprocess.check_output([cc_exe, "--version"]).decode("utf-8")
     first_line = version_str.splitlines()[0]
 
